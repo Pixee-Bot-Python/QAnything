@@ -57,7 +57,7 @@ class LocalDocQA:
             print(*args, flush=True)
 
     def get_ocr_result(self, image_data: dict):
-        response = requests.post(self.ocr_url, json=image_data)
+        response = requests.post(self.ocr_url, json=image_data, timeout=60)
         response.raise_for_status()  # 如果请求返回了错误状态码，将会抛出异常
         return response.json()['results']
 
@@ -214,7 +214,7 @@ class LocalDocQA:
             return source_documents
         try:
             response = requests.post(f"{self.local_rerank_service_url}/rerank",
-                                     json={"passages": [doc.page_content for doc in source_documents], "query": query})
+                                     json={"passages": [doc.page_content for doc in source_documents], "query": query}, timeout=60)
             scores = response.json()
             for idx, score in enumerate(scores):
                 source_documents[idx].metadata['score'] = score
