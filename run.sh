@@ -69,21 +69,26 @@ print_important_notice() {
     sleep 5
 }
 
-# 获取最新的远程仓库信息
-git fetch origin master
+# 检查系统中是否存在git命令
+if command -v git &> /dev/null
+then
+    # 获取最新的远程仓库信息
+    git fetch origin master
 
-# 获取本地master分支的最新提交
-LOCAL=$(git rev-parse master)
-# 获取远程master分支的最新提交
-REMOTE=$(git rev-parse origin/master)
+    # 获取本地master分支的最新提交
+    LOCAL=$(git rev-parse master)
+    # 获取远程master分支的最新提交
+    REMOTE=$(git rev-parse origin/master)
 
-if [ $LOCAL != $REMOTE ]; then
-    # 本地分支与远程分支不一致，需要更新
-    print_important_notice
+    if [ "$LOCAL" != "$REMOTE" ]; then
+        # 本地分支与远程分支不一致，需要更新
+        print_important_notice
+    else
+        echo -e "${GREEN}当前master分支已是最新，无需更新。${NC}"
+    fi
 else
-    echo -e "${GREEN}当前master分支已是最新，无需更新。${NC}"
+    echo "git 未安装，跳过更新检查。"
 fi
-
 
 llm_api="local"
 device_id="0"
@@ -277,6 +282,8 @@ if [ -e /proc/version ]; then
     if docker-compose -p user -f docker-compose-windows.yaml down |& tee /dev/tty | grep -q "services.qanything_local.deploy.resources.reservations value 'devices' does not match any of the regexes"; then
         echo "检测到 Docker Compose 版本过低，请升级到v2.23.3或更高版本。执行docker-compose -v查看版本。"
     fi
+    mkdir -p volumes/es/data
+    chmod 777 -R volumes/es/data
     docker-compose -p user -f docker-compose-windows.yaml up -d
     docker-compose -p user -f docker-compose-windows.yaml logs -f qanything_local
   else
@@ -284,6 +291,8 @@ if [ -e /proc/version ]; then
     if docker-compose -p user -f docker-compose-linux.yaml down |& tee /dev/tty | grep -q "services.qanything_local.deploy.resources.reservations value 'devices' does not match any of the regexes"; then
         echo "检测到 Docker Compose 版本过低，请升级到v2.23.3或更高版本。执行docker-compose -v查看版本。"
     fi
+    mkdir -p volumes/es/data
+    chmod 777 -R volumes/es/data
     docker-compose -p user -f docker-compose-linux.yaml up -d
     docker-compose -p user -f docker-compose-linux.yaml logs -f qanything_local
     # 检查日志输出

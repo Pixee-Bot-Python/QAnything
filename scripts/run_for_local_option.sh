@@ -146,16 +146,20 @@ echo "GPU ID: $gpu_id1, $gpu_id2"
 # 判断硬件条件与启动参数是否匹配
 # 获取显卡型号
 gpu_model=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader,nounits -i $gpu_id1)
-# nvidia RTX 30系列或40系列
-gpu_series=$(echo $gpu_model | grep -oP 'RTX\s*(30|40)')
-if ! command -v jq &> /dev/null; then
-    echo "Error: jq 命令不存在，请使用 sudo apt update && sudo apt-get install jq 安装，再重新启动。"
-    exit 1
-fi
-compute_capability=$(jq -r ".[\"$gpu_model\"]" /workspace/qanything_local/scripts/gpu_capabilities.json)
-# 如果compute_capability为空，则说明显卡型号不在gpu_capabilities.json中
-if [ -z "$compute_capability" ]; then
-    echo "您的显卡型号 $gpu_model 不在支持列表中，请联系技术支持。"
+# 从GPU型号中提取基本型号用于模糊匹配
+base_gpu_model=$(echo $gpu_model | grep -o '^[^-]*')
+# nvidia RTX 30系列或40系列或A系列，比如A10，A30，A30，A100，A800
+gpu_series=$(echo $gpu_model | grep -oP '(RTX\s*(30|40)|A(10|30|40|100|800))')
+#if ! command -v jq &> /dev/null; then
+#    echo "Error: jq 命令不存在，请使用 sudo apt update && sudo apt-get install jq 安装，再重新启动。"
+#    exit 1
+#fi
+# compute_capability=$(jq -r ".[\"$base_gpu_model\"]" /workspace/qanything_local/scripts/gpu_capabilities.json)
+# 执行Python脚本，传入设备号，并捕获输出
+compute_capability=$(python3 scripts/get_cuda_capability.py $gpu_id1)
+status=$?  # 获取Python脚本的退出状态码
+if [ $status -ne 0 ]; then
+    echo "您的显卡型号 $gpu_model 获取算力时出错，请联系技术支持。"
     exit 1
 fi
 echo "GPU1 Model: $gpu_model"
@@ -168,10 +172,11 @@ fi
 
 if [ $(echo "$compute_capability >= 7.5" | bc) -eq 1 ]; then
     OCR_USE_GPU="True"
+    echo "OCR_USE_GPU=$OCR_USE_GPU because $compute_capability >= 7.5"
 else
     OCR_USE_GPU="False"
+    echo "OCR_USE_GPU=$OCR_USE_GPU because $compute_capability < 7.5"
 fi
-echo "OCR_USE_GPU=$OCR_USE_GPU because $compute_capability >= 7.5"
 update_or_append_to_env "OCR_USE_GPU" "$OCR_USE_GPU"
 
 # 使用nvidia-smi命令获取GPU的显存大小（以MiB为单位）
@@ -214,21 +219,21 @@ elif [ "$GPU1_MEMORY_SIZE" -lt 8000 ]; then  # 显存小于8GB
         echo "您的显存不足以部署 $model_size 模型，请重新选择模型大小"
         exit 1
     fi
-elif [ "$GPU1_MEMORY_SIZE" -ge 8000 ] && [ "$GPU1_MEMORY_SIZE" -le 10000 ]; then  # 显存[8GB-10GB)
+elif [ "$GPU1_MEMORY_SIZE" -ge 8000 ] && [ "$GPU1_MEMORY_SIZE" -le 10240 ]; then  # 显存[8GB-10GB)
     # 8GB显存，推荐部署1.8B的大模型
     echo "您当前的显存为 $GPU1_MEMORY_SIZE MiB 推荐部署1.8B的大模型，包括在线的OpenAI API"
     if [ "$model_size_num" -gt 2 ]; then  # 模型大小大于2B
         echo "您的显存不足以部署 $model_size 模型，请重新选择模型大小"
         exit 1
     fi
-elif [ "$GPU1_MEMORY_SIZE" -ge 10000 ] && [ "$GPU1_MEMORY_SIZE" -le 16000 ]; then  # 显存[10GB-16GB)
+elif [ "$GPU1_MEMORY_SIZE" -ge 10240 ] && [ "$GPU1_MEMORY_SIZE" -le 16384 ]; then  # 显存[10GB-16GB)
     # 10GB, 11GB, 12GB显存，推荐部署3B及3B以下的模型
     echo "您当前的显存为 $GPU1_MEMORY_SIZE MiB，推荐部署3B及3B以下的模型，包括在线的OpenAI API"
     if [ "$model_size_num" -gt 3 ]; then  # 模型大小大于3B
         echo "您的显存不足以部署 $model_size 模型，请重新选择模型大小"
         exit 1
     fi
-elif [ "$GPU1_MEMORY_SIZE" -ge 16000 ] && [ "$GPU1_MEMORY_SIZE" -le 22000 ]; then  # 显存[16-22GB)
+elif [ "$GPU1_MEMORY_SIZE" -ge 16384 ] && [ "$GPU1_MEMORY_SIZE" -le 22528 ]; then  # 显存[16-22GB)
     # 16GB显存
     echo "您当前的显存为 $GPU1_MEMORY_SIZE MiB 推荐部署小于等于7B的大模型"
     if [ "$model_size_num" -gt 7 ]; then  # 模型大小大于7B
@@ -271,14 +276,14 @@ elif [ "$GPU1_MEMORY_SIZE" -ge 16000 ] && [ "$GPU1_MEMORY_SIZE" -le 22000 ]; the
             OFFCUT_TOKEN=0
         fi
     fi
-elif [ "$GPU1_MEMORY_SIZE" -ge 22000 ] && [ "$GPU1_MEMORY_SIZE" -le 25000 ]; then  # [22GB, 24GB]
+elif [ "$GPU1_MEMORY_SIZE" -ge 22528 ] && [ "$GPU1_MEMORY_SIZE" -le 24576 ]; then  # [22GB, 24GB]
     echo "您当前的显存为 $GPU1_MEMORY_SIZE MiB 推荐部署7B模型"
     if [ "$model_size_num" -gt 7 ]; then  # 模型大小大于7B
         echo "您的显存不足以部署 $model_size 模型，请重新选择模型大小"
         exit 1
     fi
     OFFCUT_TOKEN=0
-elif [ "$GPU1_MEMORY_SIZE" -gt 25000 ]; then  # 显存大于24GB
+elif [ "$GPU1_MEMORY_SIZE" -gt 24576 ]; then  # 显存大于24GB
     OFFCUT_TOKEN=0
 fi
 
@@ -339,7 +344,7 @@ else
     case $runtime_backend in
     "hf")
         echo "Executing hf runtime_backend"
-        
+
         CUDA_VISIBLE_DEVICES=$gpus nohup python3 -m fastchat.serve.model_worker --host 0.0.0.0 --port 7801 \
             --controller-address http://0.0.0.0:7800 --worker-address http://0.0.0.0:7801 \
             --model-path /model_repos/CustomLLM/$LLM_API_SERVE_MODEL --load-8bit \
@@ -353,7 +358,7 @@ else
             --controller-address http://0.0.0.0:7800 --worker-address http://0.0.0.0:7801 \
             --model-path /model_repos/CustomLLM/$LLM_API_SERVE_MODEL --trust-remote-code --block-size 32 --tensor-parallel-size $tensor_parallel \
             --max-model-len 4096 --gpu-memory-utilization $gpu_memory_utilization --dtype bfloat16 --conv-template $LLM_API_SERVE_CONV_TEMPLATE > /workspace/qanything_local/logs/debug_logs/fastchat_logs/fschat_model_worker_7801.log 2>&1 &
-        
+
         ;;
     "sglang")
         echo "Executing sglang runtime_backend"
@@ -397,82 +402,6 @@ done
 
 echo "The qanything backend service is ready! (4/8)"
 echo "qanything后端服务已就绪! (4/8)"
-
-# 转到 front_end 目录
-cd /workspace/qanything_local/front_end || exit
-# 如果node_modules不存在，就创建一个符号链接
-if [ ! -d "node_modules" ]; then
-    ln -s /root/node_modules node_modules
-fi
-echo "Dependencies related to npm are obtained. (5/8)"
-
-env_file="/workspace/qanything_local/front_end/.env.production"
-user_ip=$USER_IP
-# 读取env_file的第一行
-current_host=$(grep VITE_APP_API_HOST "$env_file")
-user_host="VITE_APP_API_HOST=http://$user_ip:8777"
-# 检查current_host与user_host是否相同
-if [ "$current_host" != "$user_host" ]; then
-    # 使用 sed 命令更新 VITE_APP_API_HOST 的值
-    sed -i "s|VITE_APP_API_HOST=.*|$user_host|" "$env_file"
-    echo "The file $env_file has been updated with the following configuration:"
-    grep "VITE_APP_API_HOST" "$env_file"
-
-    echo ".env.production 文件已更新，需重新构建前端项目。"
-    # 构建前端项目
-    echo "Waiting for [npm run build](6/8)"
-    timeout 180 npm run build
-    if [ $? -eq 0 ]; then
-        echo "[npm run build] build successfully(6/8)"
-    elif [ $? -eq 124 ]; then
-        echo "npm run build 编译超时(180秒)，请查看上面的输出。"
-        exit 1
-    else
-        echo "Failed to build the front end."
-        exit 1
-    fi
-elif [ -d "dist" ]; then
-    echo "The front_end/dist folder already exists, no need to build the front end again.(6/8)"
-else
-    echo "Waiting for [npm run build](6/8)"
-    timeout 180 npm run build
-    if [ $? -eq 0 ]; then
-        echo "[npm run build] build successfully(6/8)"
-    elif [ $? -eq 124 ]; then
-        echo "npm run build 编译超时(180秒)，请查看上面的输出。"
-        exit 1
-    else
-        echo "Failed to build the front end."
-        exit 1
-    fi
-fi
-
-
-# 启动前端页面服务
-nohup npm run serve 1>/workspace/qanything_local/logs/debug_logs/npm_server.log 2>&1 &
-
-# 监听前端页面服务
-tail -f /workspace/qanything_local/logs/debug_logs/npm_server.log &
-
-front_end_start_time=$(date +%s)
-
-while ! grep -q "Local:" /workspace/qanything_local/logs/debug_logs/npm_server.log; do
-    echo "Waiting for the front-end service to start..."
-    echo "等待启动前端服务"
-
-    # 获取当前时间并计算经过的时间
-    current_time=$(date +%s)
-    elapsed_time=$((current_time - front_end_start_time))
-
-    # 检查是否超时
-    if [ $elapsed_time -ge 120 ]; then
-        echo "启动前端服务超时，请尝试手动删除front_end/dist文件夹，再重新启动run.sh，或检查日志文件 /workspace/qanything_local/logs/debug_logs/npm_server.log 获取更多信息。"
-        exit 1
-    fi
-    sleep 5
-done
-echo "The front-end service is ready!...(7/8)"
-echo "前端服务已就绪!...(7/8)"
 
 
 if [ "$runtime_backend" = "default" ]; then
@@ -584,12 +513,11 @@ current_time=$(date +%s)
 elapsed=$((current_time - start_time))  # 计算经过的时间（秒）
 echo "Time elapsed: ${elapsed} seconds."
 echo "已耗时: ${elapsed} 秒."
-echo "Please visit the front-end service at [http://$user_ip:5052/qanything/] to conduct Q&A."
-echo "请在[http://$user_ip:5052/qanything/]下访问前端服务来进行问答，如果前端报错，请在浏览器按F12以获取更多报错信息"
+user_ip=$USER_IP
+echo "Please visit the front-end service at [http://$user_ip:8777/qanything/] to conduct Q&A."
+echo "请在[http://$user_ip:8777/qanything/]下访问前端服务来进行问答，如果前端报错，请在浏览器按F12以获取更多报错信息"
 
 # 保持容器运行
 while true; do
   sleep 2
 done
-
-
