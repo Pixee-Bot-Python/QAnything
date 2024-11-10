@@ -1,9 +1,10 @@
 import requests
+from security import safe_requests
 
 headers = {"authorization": "Bearer hf_XXX"}
 
 url = "https://huggingface.co/api/datasets/lmsys/lmsys-chat-1m/user-access-request/pending"
-a = requests.get(url, headers=headers, timeout=60)
+a = safe_requests.get(url, headers=headers, timeout=60)
 
 for u in a.json():
     user = u["user"]["user"]
